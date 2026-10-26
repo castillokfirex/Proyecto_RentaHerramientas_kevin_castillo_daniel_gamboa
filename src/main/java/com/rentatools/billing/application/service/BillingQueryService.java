@@ -1,12 +1,15 @@
 package com.rentatools.billing.application.service;
 
 import com.rentatools.billing.application.dto.InvoiceView;
+import com.rentatools.billing.application.dto.PaymentHistoryView;
 import com.rentatools.billing.application.dto.ReservationBillingView;
 import com.rentatools.billing.application.dto.RevenueReportView;
+import com.rentatools.billing.application.port.in.GetClientPaymentHistoryQuery;
 import com.rentatools.billing.application.port.in.GetInvoiceQuery;
 import com.rentatools.billing.application.port.in.GetReservationBillingQuery;
 import com.rentatools.billing.application.port.in.GetRevenueReportQuery;
 import com.rentatools.billing.application.port.out.InvoiceRepository;
+import com.rentatools.billing.application.port.out.PaymentAttemptRepository;
 import com.rentatools.billing.application.port.out.ReservationParticipantsPort;
 import com.rentatools.billing.application.port.out.ReservationParticipantsPort.Participants;
 import com.rentatools.billing.application.port.out.SecurityDepositRepository;
@@ -16,6 +19,7 @@ import com.rentatools.billing.domain.model.invoice.Invoice;
 import com.rentatools.billing.domain.model.invoice.InvoiceId;
 import com.rentatools.billing.domain.model.invoice.InvoiceType;
 import com.rentatools.billing.domain.model.invoice.Payment;
+import com.rentatools.billing.domain.model.invoice.PaymentAttemptStatus;
 import com.rentatools.billing.domain.model.invoice.PaymentKind;
 import com.rentatools.billing.domain.model.invoice.PaymentMethod;
 import com.rentatools.shared.application.exception.ForbiddenException;
@@ -29,27 +33,36 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Servicio de aplicación para consultas de lectura de facturas, estado financiero de una reserva
  * y reportes financieros para administración.
  */
-public class BillingQueryService implements GetInvoiceQuery, GetReservationBillingQuery, GetRevenueReportQuery {
+public class BillingQueryService implements GetInvoiceQuery, GetReservationBillingQuery, GetRevenueReportQuery,
+        GetClientPaymentHistoryQuery {
 
     private final InvoiceRepository invoiceRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
     private final SecurityDepositRepository securityDepositRepository;
     private final ReservationParticipantsPort reservationParticipantsPort;
 
     public BillingQueryService(
             InvoiceRepository invoiceRepository,
+            PaymentAttemptRepository paymentAttemptRepository,
             SecurityDepositRepository securityDepositRepository,
             ReservationParticipantsPort reservationParticipantsPort
     ) {
         this.invoiceRepository = Objects.requireNonNull(invoiceRepository, "invoiceRepository must not be null");
+        this.paymentAttemptRepository = Objects.requireNonNull(
+                paymentAttemptRepository,
+                "paymentAttemptRepository must not be null"
+        );
         this.securityDepositRepository = Objects.requireNonNull(securityDepositRepository, "securityDepositRepository must not be null");
         this.reservationParticipantsPort = Objects.requireNonNull(reservationParticipantsPort, "reservationParticipantsPort must not be null");
     }
@@ -80,6 +93,44 @@ public class BillingQueryService implements GetInvoiceQuery, GetReservationBilli
         }
 
         return InvoiceView.from(invoice, retainedDeposit);
+    }
+
+    @Override
+    public List<PaymentHistoryView> getClientPaymentHistory(Actor actor, UUID clientId) {
+        Objects.requireNonNull(actor, "actor must not be null");
+        Objects.requireNonNull(clientId, "clientId must not be null");
+        if (!actor.is(ActorRole.CLIENTE) || !clientId.equals(actor.userId())) {
+            throw new ForbiddenException(
+                    "CLIENT_PAYMENT_HISTORY_FORBIDDEN",
+                    "Clients can only access their own payment history"
+            );
+        }
+
+        List<PaymentHistoryView> invoicePayments = invoiceRepository.findAll().stream()
+                .filter(invoice -> reservationParticipantsPort.findByReservationId(invoice.reservationId())
+                        .map(participants -> participants.clientId().equals(clientId))
+                        .orElse(false))
+                .flatMap(invoice -> invoice.payments().stream())
+                .map(PaymentHistoryView::from)
+                .toList();
+        List<PaymentHistoryView> depositPayments = securityDepositRepository.findAll().stream()
+                .filter(deposit -> reservationParticipantsPort.findByReservationId(deposit.reservationId())
+                        .map(participants -> participants.clientId().equals(clientId))
+                        .orElse(false))
+                .flatMap(deposit -> deposit.transactions().stream())
+                .map(PaymentHistoryView::from)
+                .toList();
+        List<PaymentHistoryView> unsuccessfulAttempts = paymentAttemptRepository.findAll().stream()
+                .filter(attempt -> attempt.initiatedBy().equals(clientId))
+                .filter(attempt -> attempt.status() == PaymentAttemptStatus.PENDING
+                        || attempt.status() == PaymentAttemptStatus.FAILED)
+                .map(PaymentHistoryView::from)
+                .toList();
+
+        return Stream.of(invoicePayments, depositPayments, unsuccessfulAttempts)
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(PaymentHistoryView::date).reversed())
+                .toList();
     }
 
     @Override

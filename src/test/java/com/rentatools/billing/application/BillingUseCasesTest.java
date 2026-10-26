@@ -2,6 +2,7 @@ package com.rentatools.billing.application;
 
 import com.rentatools.billing.application.BillingTestFakes.InMemoryInvoiceNumberAllocator;
 import com.rentatools.billing.application.BillingTestFakes.InMemoryInvoiceRepository;
+import com.rentatools.billing.application.BillingTestFakes.InMemoryPaymentAttemptRepository;
 import com.rentatools.billing.application.BillingTestFakes.InMemoryReservationParticipantsPort;
 import com.rentatools.billing.application.BillingTestFakes.InMemorySecurityDepositRepository;
 import com.rentatools.billing.application.dto.InvoiceView;
@@ -22,7 +23,9 @@ import com.rentatools.billing.application.service.PaymentService;
 import com.rentatools.billing.application.service.RentalBillingService;
 import com.rentatools.billing.application.service.SettlementService;
 import com.rentatools.billing.domain.model.invoice.InvoiceStatus;
+import com.rentatools.billing.domain.model.invoice.PaymentAttemptStatus;
 import com.rentatools.billing.domain.model.invoice.PaymentMethod;
+import com.rentatools.billing.domain.exception.OverpaymentException;
 import com.rentatools.billing.domain.service.LateFeePolicy;
 import com.rentatools.billing.domain.service.SettlementCalculator;
 import com.rentatools.shared.application.exception.ForbiddenException;
@@ -53,6 +56,7 @@ class BillingUseCasesTest {
     private static final BigDecimal LATE_FEE_MULTIPLIER = new BigDecimal("1.50");
 
     private InMemoryInvoiceRepository invoiceRepository;
+    private InMemoryPaymentAttemptRepository paymentAttemptRepository;
     private InMemorySecurityDepositRepository depositRepository;
     private InMemoryInvoiceNumberAllocator numberAllocator;
     private InMemoryReservationParticipantsPort participantsPort;
@@ -75,6 +79,7 @@ class BillingUseCasesTest {
     @BeforeEach
     void setUp() {
         invoiceRepository = new InMemoryInvoiceRepository();
+        paymentAttemptRepository = new InMemoryPaymentAttemptRepository();
         depositRepository = new InMemorySecurityDepositRepository();
         numberAllocator = new InMemoryInvoiceNumberAllocator();
         participantsPort = new InMemoryReservationParticipantsPort();
@@ -93,6 +98,7 @@ class BillingUseCasesTest {
         );
         paymentService = new PaymentService(
                 invoiceRepository,
+                paymentAttemptRepository,
                 depositRepository,
                 participantsPort,
                 eventPublisher,
@@ -118,6 +124,7 @@ class BillingUseCasesTest {
         );
         billingQueryService = new BillingQueryService(
                 invoiceRepository,
+                paymentAttemptRepository,
                 depositRepository,
                 participantsPort
         );
@@ -395,6 +402,18 @@ class BillingUseCasesTest {
                 .isInstanceOf(ForbiddenException.class)
                 .extracting("code")
                 .isEqualTo("CLIENT_PAYMENT_METHOD_FORBIDDEN");
+
+        assertThatThrownBy(() -> paymentService.registerPayment(new RegisterPaymentUseCase.Command(
+                clientActor,
+                billing.rentalInvoice().id(),
+                Money.of("120000.00"),
+                PaymentMethod.SIMULATED,
+                "OVERPAY-1"
+        ))).isInstanceOf(OverpaymentException.class);
+        assertThat(paymentAttemptRepository.findAll())
+                .singleElement()
+                .extracting(attempt -> attempt.status())
+                .isEqualTo(PaymentAttemptStatus.FAILED);
     }
 
     @Test

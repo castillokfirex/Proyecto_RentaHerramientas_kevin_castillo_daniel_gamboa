@@ -81,6 +81,34 @@
             <p class="text-muted small mt-2 mb-0">Cargando reservas...</p>
         </div>
 
+        <section class="card rt-card p-3 mb-4" aria-labelledby="paymentHistoryHeading">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <h2 id="paymentHistoryHeading" class="h5 fw-bold mb-1">Historial de Pagos</h2>
+                    <p class="small text-muted mb-0">Movimientos de pago y reembolsos registrados en tus facturas.</p>
+                </div>
+                <span id="paymentHistoryCount" class="small text-muted fw-semibold"></span>
+            </div>
+            <div id="paymentHistoryLoading" class="text-center py-3 d-none">
+                <div class="spinner-border spinner-border-sm text-warning" role="status"></div>
+                <span class="small text-muted ms-2">Cargando historial...</span>
+            </div>
+            <div id="paymentHistoryContent">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th scope="col">Fecha</th>
+                                <th scope="col" class="text-end">Monto</th>
+                                <th scope="col">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paymentHistoryRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <!-- Lista de Reservas -->
         <div id="reservationsList" class="row g-3"></div>
     </main>

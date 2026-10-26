@@ -2,6 +2,7 @@ package com.rentatools.billing.application;
 
 import com.rentatools.billing.application.port.out.InvoiceNumberAllocator;
 import com.rentatools.billing.application.port.out.InvoiceRepository;
+import com.rentatools.billing.application.port.out.PaymentAttemptRepository;
 import com.rentatools.billing.application.port.out.ReservationParticipantsPort;
 import com.rentatools.billing.application.port.out.SecurityDepositRepository;
 import com.rentatools.billing.domain.model.deposit.DepositId;
@@ -10,6 +11,7 @@ import com.rentatools.billing.domain.model.invoice.Invoice;
 import com.rentatools.billing.domain.model.invoice.InvoiceId;
 import com.rentatools.billing.domain.model.invoice.InvoiceNumber;
 import com.rentatools.billing.domain.model.invoice.InvoiceType;
+import com.rentatools.billing.domain.model.invoice.PaymentAttempt;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -124,6 +126,22 @@ public final class BillingTestFakes {
         @Override
         public InvoiceNumber allocateNext() {
             return InvoiceNumber.of(sequence.incrementAndGet());
+        }
+    }
+
+    public static final class InMemoryPaymentAttemptRepository implements PaymentAttemptRepository {
+
+        private final Map<UUID, PaymentAttempt> store = new LinkedHashMap<>();
+
+        @Override
+        public PaymentAttempt save(PaymentAttempt paymentAttempt) {
+            store.put(paymentAttempt.id(), paymentAttempt);
+            return paymentAttempt;
+        }
+
+        @Override
+        public List<PaymentAttempt> findAll() {
+            return List.copyOf(store.values());
         }
     }
 

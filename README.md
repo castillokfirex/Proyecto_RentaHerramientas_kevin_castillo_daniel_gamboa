@@ -459,6 +459,7 @@ RESERVAS E INSPECCIONES (RENTAL)
 FACTURACIÓN Y GARANTÍAS (BILLING)
 ├── GET  /api/v1/billing/reservations/{id}       -> Estado de factura RENTAL y depósito
 ├── POST /api/v1/billing/invoices/{id}/payments  -> Registrar pago de factura
+├── GET  /api/v1/pagos/cliente/{id}              -> Historial de pagos del cliente autenticado
 ├── POST /api/v1/billing/reservations/{id}/deposit/collections -> Registrar cobro de garantía
 ├── POST /api/v1/billing/reservations/{id}/settle -> Liquidar reserva y reembolsar garantía
 └── GET  /api/v1/admin/reports/revenue           -> Reporte consolidado de ingresos (ADMIN)

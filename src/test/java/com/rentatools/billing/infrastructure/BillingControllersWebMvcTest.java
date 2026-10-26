@@ -2,6 +2,7 @@ package com.rentatools.billing.infrastructure;
 
 import com.rentatools.billing.application.dto.InvoiceLineView;
 import com.rentatools.billing.application.dto.InvoiceView;
+import com.rentatools.billing.application.dto.PaymentHistoryView;
 import com.rentatools.billing.application.dto.PaymentView;
 import com.rentatools.billing.application.dto.ReservationBillingView;
 import com.rentatools.billing.application.dto.RevenueReportView;
@@ -9,6 +10,7 @@ import com.rentatools.billing.application.dto.SecurityDepositView;
 import com.rentatools.billing.application.port.in.AddDamageChargeUseCase;
 import com.rentatools.billing.application.port.in.CollectDepositUseCase;
 import com.rentatools.billing.application.port.in.GetInvoiceQuery;
+import com.rentatools.billing.application.port.in.GetClientPaymentHistoryQuery;
 import com.rentatools.billing.application.port.in.GetReservationBillingQuery;
 import com.rentatools.billing.application.port.in.GetRevenueReportQuery;
 import com.rentatools.billing.application.port.in.RegisterPaymentUseCase;
@@ -19,6 +21,7 @@ import com.rentatools.billing.domain.model.invoice.LineConcept;
 import com.rentatools.billing.domain.model.invoice.PaymentKind;
 import com.rentatools.billing.domain.model.invoice.PaymentMethod;
 import com.rentatools.billing.infrastructure.adapter.in.web.AdminBillingReportController;
+import com.rentatools.billing.infrastructure.adapter.in.web.ClientPaymentHistoryController;
 import com.rentatools.billing.infrastructure.adapter.in.web.InvoiceController;
 import com.rentatools.billing.infrastructure.adapter.in.web.ReservationBillingController;
 import com.rentatools.shared.domain.Ids;
@@ -63,6 +66,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {
         InvoiceController.class,
         ReservationBillingController.class,
+        ClientPaymentHistoryController.class,
         AdminBillingReportController.class
 })
 @Import({
@@ -84,6 +88,9 @@ class BillingControllersWebMvcTest {
     private GetInvoiceQuery getInvoiceQuery;
 
     @MockitoBean
+    private GetClientPaymentHistoryQuery getClientPaymentHistoryQuery;
+
+    @MockitoBean
     private RegisterPaymentUseCase registerPaymentUseCase;
 
     @MockitoBean
@@ -102,6 +109,35 @@ class BillingControllersWebMvcTest {
     private GetRevenueReportQuery getRevenueReportQuery;
 
     private static final Instant NOW = Instant.parse("2026-06-15T10:00:00Z");
+
+    @Test
+    @DisplayName("ClientPaymentHistoryController: autentica al cliente y devuelve sus movimientos")
+    void clientPaymentHistoryRequiresClientRole() throws Exception {
+        UUID clientId = com.rentatools.support.DevUsers.CLIENT_ID;
+        given(getClientPaymentHistoryQuery.getClientPaymentHistory(any(), eq(clientId)))
+                .willReturn(List.of(new PaymentHistoryView(
+                        Ids.newId(),
+                        NOW,
+                        new BigDecimal("125.00"),
+                        PaymentMethod.SIMULATED,
+                        "PAGADO"
+                )));
+
+        mockMvc.perform(get("/api/v1/pagos/cliente/{id}", clientId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/v1/pagos/cliente/{id}", clientId)
+                        .with(JwtRequestPostProcessors.asProvider()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/pagos/cliente/{id}", clientId)
+                        .with(JwtRequestPostProcessors.asClient()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].date").value(NOW.toString()))
+                .andExpect(jsonPath("$[0].amount").value(125.00))
+                .andExpect(jsonPath("$[0].method").value("SIMULATED"))
+                .andExpect(jsonPath("$[0].status").value("PAGADO"));
+    }
 
     @Test
     @DisplayName("InvoiceController: verifica 200, 400 (validación), 401 (sin JWT) y 403 (CLIENTE en damage-charges)")

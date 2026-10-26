@@ -3,6 +3,7 @@ package com.rentatools.billing.application.service;
 import com.rentatools.billing.application.dto.InvoiceView;
 import com.rentatools.billing.application.port.in.RegisterPaymentUseCase;
 import com.rentatools.billing.application.port.out.InvoiceRepository;
+import com.rentatools.billing.application.port.out.PaymentAttemptRepository;
 import com.rentatools.billing.application.port.out.ReservationParticipantsPort;
 import com.rentatools.billing.application.port.out.ReservationParticipantsPort.Participants;
 import com.rentatools.billing.application.port.out.SecurityDepositRepository;
@@ -11,6 +12,8 @@ import com.rentatools.billing.domain.model.deposit.SecurityDeposit;
 import com.rentatools.billing.domain.model.invoice.Invoice;
 import com.rentatools.billing.domain.model.invoice.InvoiceId;
 import com.rentatools.billing.domain.model.invoice.InvoiceType;
+import com.rentatools.billing.domain.model.invoice.PaymentAttempt;
+import com.rentatools.billing.domain.model.invoice.PaymentAttemptStatus;
 import com.rentatools.shared.application.exception.NotFoundException;
 import com.rentatools.shared.application.port.out.IntegrationEventPublisher;
 import com.rentatools.shared.domain.Ids;
@@ -28,6 +31,7 @@ import java.util.Objects;
 public class PaymentService implements RegisterPaymentUseCase {
 
     private final InvoiceRepository invoiceRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
     private final SecurityDepositRepository securityDepositRepository;
     private final ReservationParticipantsPort reservationParticipantsPort;
     private final IntegrationEventPublisher integrationEventPublisher;
@@ -35,12 +39,17 @@ public class PaymentService implements RegisterPaymentUseCase {
 
     public PaymentService(
             InvoiceRepository invoiceRepository,
+            PaymentAttemptRepository paymentAttemptRepository,
             SecurityDepositRepository securityDepositRepository,
             ReservationParticipantsPort reservationParticipantsPort,
             IntegrationEventPublisher integrationEventPublisher,
             Clock clock
     ) {
         this.invoiceRepository = Objects.requireNonNull(invoiceRepository, "invoiceRepository must not be null");
+        this.paymentAttemptRepository = Objects.requireNonNull(
+                paymentAttemptRepository,
+                "paymentAttemptRepository must not be null"
+        );
         this.securityDepositRepository = Objects.requireNonNull(securityDepositRepository, "securityDepositRepository must not be null");
         this.reservationParticipantsPort = Objects.requireNonNull(reservationParticipantsPort, "reservationParticipantsPort must not be null");
         this.integrationEventPublisher = Objects.requireNonNull(integrationEventPublisher, "integrationEventPublisher must not be null");
@@ -65,45 +74,63 @@ public class PaymentService implements RegisterPaymentUseCase {
 
         Money retainedDeposit = resolveRetainedDeposit(invoice, deposit);
         Instant now = Instant.now(clock);
-
-        invoice.registerPayment(
+        PaymentAttempt attempt = paymentAttemptRepository.save(PaymentAttempt.pending(
+                invoice.id().value(),
                 command.amount(),
                 command.method(),
                 command.reference(),
                 now,
-                command.actor().userId(),
-                retainedDeposit
-        );
-        Invoice savedInvoice = invoiceRepository.save(invoice);
+                command.actor().userId()
+        ));
 
-        if (savedInvoice.type() == InvoiceType.RENTAL) {
-            if (savedInvoice.isIssued()
-                    && savedInvoice.balance().isZero()
-                    && deposit != null
-                    && deposit.isFullyCollected()
-                    && !deposit.isSettled()) {
-                integrationEventPublisher.publish(new ReservationClearedForDelivery(
-                        Ids.newId(),
-                        now,
-                        savedInvoice.reservationId()
-                ));
+        try {
+            invoice.registerPayment(
+                    command.amount(),
+                    command.method(),
+                    command.reference(),
+                    now,
+                    command.actor().userId(),
+                    retainedDeposit
+            );
+            Invoice savedInvoice = invoiceRepository.save(invoice);
+
+            if (savedInvoice.type() == InvoiceType.RENTAL) {
+                if (savedInvoice.isIssued()
+                        && savedInvoice.balance().isZero()
+                        && deposit != null
+                        && deposit.isFullyCollected()
+                        && !deposit.isSettled()) {
+                    integrationEventPublisher.publish(new ReservationClearedForDelivery(
+                            Ids.newId(),
+                            now,
+                            savedInvoice.reservationId()
+                    ));
+                }
+            } else if (savedInvoice.type() == InvoiceType.SETTLEMENT) {
+                if (savedInvoice.isIssued()
+                        && savedInvoice.balance(retainedDeposit).isZero()
+                        && deposit != null
+                        && deposit.isSettled()) {
+                    integrationEventPublisher.publish(new ReservationSettled(
+                            Ids.newId(),
+                            now,
+                            savedInvoice.reservationId(),
+                            deposit.totalRefunded().amount(),
+                            savedInvoice.total().amount()
+                    ));
+                }
             }
-        } else if (savedInvoice.type() == InvoiceType.SETTLEMENT) {
-            if (savedInvoice.isIssued()
-                    && savedInvoice.balance(retainedDeposit).isZero()
-                    && deposit != null
-                    && deposit.isSettled()) {
-                integrationEventPublisher.publish(new ReservationSettled(
-                        Ids.newId(),
-                        now,
-                        savedInvoice.reservationId(),
-                        deposit.totalRefunded().amount(),
-                        savedInvoice.total().amount()
-                ));
+
+            paymentAttemptRepository.save(attempt.withStatus(PaymentAttemptStatus.PAID));
+            return InvoiceView.from(savedInvoice, retainedDeposit);
+        } catch (RuntimeException exception) {
+            try {
+                paymentAttemptRepository.save(attempt.withStatus(PaymentAttemptStatus.FAILED));
+            } catch (RuntimeException persistenceException) {
+                exception.addSuppressed(persistenceException);
             }
+            throw exception;
         }
-
-        return InvoiceView.from(savedInvoice, retainedDeposit);
     }
 
     @Override
