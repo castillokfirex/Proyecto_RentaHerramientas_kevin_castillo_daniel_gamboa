@@ -6,7 +6,8 @@ import {
     formatMoney,
     formatDate,
     formatDateTime,
-    showSuccessToast
+    showSuccessToast,
+    getCurrentUser
 } from './auth.js';
 
 const state = {
@@ -34,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindEvents();
     loadReservations();
+    loadPaymentHistory();
 });
 
 function bindEvents() {
@@ -64,6 +66,46 @@ function bindEvents() {
             e.preventDefault();
             await executeCancelReservation();
         });
+    }
+}
+
+async function loadPaymentHistory() {
+    const user = getCurrentUser();
+    const rowsEl = document.getElementById('paymentHistoryRows');
+    const loadingEl = document.getElementById('paymentHistoryLoading');
+    const countEl = document.getElementById('paymentHistoryCount');
+    if (!rowsEl) return;
+    if (!isAuthenticated() || !user?.id) {
+        rowsEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Inicia sesión como cliente para consultar tus pagos.</td></tr>';
+        return;
+    }
+
+    loadingEl?.classList.remove('d-none');
+    rowsEl.innerHTML = '';
+    try {
+        const payments = await apiFetch(`/api/v1/pagos/cliente/${encodeURIComponent(user.id)}`);
+        const items = Array.isArray(payments) ? payments : [];
+        rowsEl.innerHTML = items.length
+            ? items.map(payment => `
+                <tr>
+                    <td>${formatDateTime(payment.date)}</td>
+                    <td class="text-end">${formatMoney(payment.amount)}</td>
+                    <td><span class="badge ${payment.status === 'PAGADO' ? 'bg-success'
+                        : payment.status === 'PENDIENTE' ? 'bg-warning text-dark'
+                            : payment.status === 'FALLIDO' ? 'bg-danger' : 'bg-info text-dark'}">
+                        ${escapeHtml(payment.status === 'PAGADO' ? 'Pagado'
+                            : payment.status === 'PENDIENTE' ? 'Pendiente'
+                                : payment.status === 'FALLIDO' ? 'Fallido' : 'Reembolsado')}
+                    </span></td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="3" class="text-center text-muted py-3">Aún no tienes pagos registrados.</td></tr>';
+        if (countEl) countEl.textContent = `${items.length} movimiento${items.length === 1 ? '' : 's'}`;
+    } catch {
+        rowsEl.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-3">No se pudo cargar el historial de pagos.</td></tr>';
+        if (countEl) countEl.textContent = '';
+    } finally {
+        loadingEl?.classList.add('d-none');
     }
 }
 

@@ -10,7 +10,7 @@ services:
       MYSQL_PASSWORD: rentatools
       TZ: UTC
     ports:
-      - "3306:3306"
+      - "3307:3306"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -35,7 +35,7 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rentatools?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3307/rentatools?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
       SPRING_DATASOURCE_USERNAME: rentatools
       SPRING_DATASOURCE_PASSWORD: rentatools
       JWT_SECRET: production-strong-jwt-secret-key-at-least-32-bytes-long-hs256
@@ -43,7 +43,8 @@ services:
       ADMIN_PASSWORD: Admin1234!
       TZ: UTC
     ports:
-      - "8080:8080"
+      - "8081:8080"
 
 volumes:
   mysql_data:
+
